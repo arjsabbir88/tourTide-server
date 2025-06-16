@@ -94,6 +94,24 @@ async function run (){
         })
 
 
+        // updated status part for my-booking route
+
+        app.patch('/bookings/:id',async(req,res)=>{
+            const id = req.params.id;
+            const query = {_id: new ObjectId(id)};
+            console.log(id,query)
+
+            const update = {$set: {status: "Completed"}};
+
+            try{
+                const result = await bookingCollection.updateOne(query,update)
+                res.send(result)
+            }catch(error){
+                res.status(404).send({error: error.message});
+            }
+        })
+
+
         // send data to db for the booking collection
         app.post('/bookings',async(req,res)=>{
             const newBooking = req.body;
