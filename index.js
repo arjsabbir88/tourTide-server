@@ -2,7 +2,8 @@ const express = require('express');
 const app = express();
 require('dotenv').config();
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { error } = require('console');
 
 const port = process.env.PORT || 3000;
 
@@ -28,12 +29,27 @@ async function run (){
         await client.connect();
 
         const addPackagesCollection = client.db('addPackages').collection('packages-collection');
+        const bookingCollection = client.db('addPackages').collection("bookings");
 
 
         // call api for 6 card data for the home page
         app.get('/tour-card-data', async(req,res)=>{
             const result = await addPackagesCollection.find().limit(6).toArray();
             res.send(result);
+        })
+
+        // call single api for the home page details
+
+        app.get('/tour-card-data/details/:id',async(req,res)=>{
+            const id = req.params.id;
+            const newDetailsId = new ObjectId(id);
+
+            try{
+                const tourCardDetails = await addPackagesCollection.findOne({_id: newDetailsId})
+                res.send(tourCardDetails)
+            }catch(error){
+                res.send({error: 'field to find details'})
+            }
         })
 
 
@@ -52,6 +68,54 @@ async function run (){
             console.log(newPackage);
             const result = await addPackagesCollection.insertOne(newPackage)
             res.send(result)
+        })
+
+
+
+        // get the data from the db for booking collection
+        app.get('/bookings-collection',async(req,res)=>{
+            const result = await bookingCollection.find().toArray();
+            res.send(result);
+        })
+
+        // get single booking data by using tour_id 
+        app.get('/bookings-collection/:id',async(req,res)=>{
+            const id = req.params.id;
+            // const objectId = new ObjectId(id);
+
+            try{
+                const bookingCount = await bookingCollection.find({tour_id: id}).toArray();
+                res.send(bookingCount)
+            }catch(error){
+                res.send({
+                    error: error.message
+                })
+            }
+        })
+
+
+        // send data to db for the booking collection
+        app.post('/bookings',async(req,res)=>{
+            const newBooking = req.body;
+            const result = await bookingCollection.insertOne(newBooking);
+            res.send(result)
+        })
+
+        // find my-booking data using buyer email
+
+        app.get('/my-bookings',async(req,res)=>{
+            const email = req.query.email;
+
+            if(!email){
+                return res.send({error: 'Email is require'})
+            }
+
+            try{
+                const bookings = await bookingCollection.find({buyer_email: email}).toArray();
+                res.send(bookings)
+            }catch(error){
+                res.status(500).send({error: error.message});
+            }
         })
 
 
