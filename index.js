@@ -53,13 +53,55 @@ async function run (){
         })
 
 
-
         // call api for the all package data it will render in all package page
         app.get('/all-packages', async(req,res)=>{
             const result = await addPackagesCollection.find().toArray();
             res.send(result)
         })
 
+        // single package for show update field
+        app.get('/package/:id',async(req,res)=>{
+            const id = req.params.id;
+            const packageId = new ObjectId(id);
+
+            try{
+                const result = await addPackagesCollection.findOne({_id: packageId});
+                res.send(result)
+            }catch(error){
+                res.send({error: error.message});
+            }
+        })
+
+
+        // update packages
+        app.patch('/package/:id',async(req,res)=>{
+            const id= req.params.id;
+            const updateData = req.body;
+            const filter = {_id: new ObjectId(id)};
+            const updateDoc = {
+                $set: updateData
+            }
+
+            try{
+                const result = await addPackagesCollection.updateOne(filter,updateDoc);
+                res.send(result);
+            }catch(error){
+                res.send({error: error.message});
+            }
+        })
+
+        app.get('/all-packages/manage-package', async(req,res)=>{
+            const email= req.query.email;
+            if(!email){
+                return res.send({error: 'Email is require'})
+            }
+            try{
+                const managePackage = await addPackagesCollection.find({email: email}).toArray()
+                res.send(managePackage);
+            }catch(error){
+                res.status(500).send({error: error.message});
+            }
+        })
 
 
         // send data to db 
