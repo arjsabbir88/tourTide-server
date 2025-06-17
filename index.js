@@ -2,6 +2,7 @@ const express = require("express");
 const app = express();
 require("dotenv").config();
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { error } = require("console");
 
@@ -9,6 +10,28 @@ const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+const verifyToken = (req, res, next) => {
+  console.log("token in the middleWare");
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  console.log("Received Token:", token);
+  console.log(process.env.JWT_SECRET_KEY);
+
+  jwt.verify(token, process.env.JWT_SECRET_KEY, (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
+    console.log(decoded)
+    req.decoded = decoded;
+    next();
+  });
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@tourtide.xzqjgqd.mongodb.net/?retryWrites=true&w=majority&appName=tourTide`;
 
@@ -51,6 +74,16 @@ async function run() {
       }
     });
 
+    // Jwt token
+    app.post("/jwt", async (req, res) => {
+      const { email } = req.body;
+      const user = { email };
+      const token = jwt.sign(user, process.env.JWT_SECRET_KEY, {
+        expiresIn: "3d",
+      });
+      res.send({ token });
+    });
+
     // search functionality
     app.get("/all-packages/search", async (req, res) => {
       const text = req.query.text;
@@ -90,6 +123,20 @@ async function run() {
       }
     });
 
+    app.patch('/packages/increment-booking/:id',async(req,res)=>{
+      const id = req.params.id;
+      try{
+        const result = await addPackagesCollection.updateOne(
+          {_id: new ObjectId(id)},
+          {$inc: {bookingCount: 1}}
+        )
+        res.send(result)
+      }catch(error){
+        res.send({error: error.message});
+      }
+    })
+
+
     // delete package api
 
     app.delete("/package/:id", async (req, res) => {
@@ -123,9 +170,11 @@ async function run() {
 
     app.get("/all-packages/manage-package", async (req, res) => {
       const email = req.query.email;
+
       if (!email) {
         return res.send({ error: "Email is require" });
       }
+
       try {
         const managePackage = await addPackagesCollection
           .find({ email: email })
