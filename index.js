@@ -3,34 +3,63 @@ const app = express();
 require("dotenv").config();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const admin = require("firebase-admin");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { error } = require("console");
 
 const port = process.env.PORT || 3000;
 
-app.use(cors());
+const allowedOrigins = [
+  {
+    origin: [process.env.BASE_URL, process.env.LOCAL_URL],
+  },
+];
+
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
-const verifyToken = (req, res, next) => {
-  console.log("token in the middleWare");
-  const authHeader = req.headers.authorization;
+const serviceAccount = require("./firebaseAdmin.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req?.headers?.authorization;
 
   if (!authHeader) {
     return res.status(401).send({ message: "Unauthorized access" });
   }
 
   const token = authHeader.split(" ")[1];
-  console.log("Received Token:", token);
-  console.log(process.env.JWT_SECRET_KEY);
 
-  jwt.verify(token, process.env.JWT_SECRET_KEY, (err, decoded) => {
-    if (err) {
-      return res.status(403).send({ message: "forbidden access" });
-    }
-    console.log(decoded)
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+
+  try {
+    // console.log(token)
+    const decoded = await admin.auth().verifyIdToken(token);
+    // console.log('decoded-token', decoded);
     req.decoded = decoded;
     next();
-  });
+  } catch (error) {
+    // console.error("Token verification failed:", error);
+    return res.status(401).send({ message: "Unauthorized - token invalid" });
+  }
 };
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@tourtide.xzqjgqd.mongodb.net/?retryWrites=true&w=majority&appName=tourTide`;
@@ -45,7 +74,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const addPackagesCollection = client
       .db("addPackages")
@@ -60,28 +89,39 @@ async function run() {
 
     // call single api for the home page details
 
-    app.get("/tour-card-data/details/:id", async (req, res) => {
+    app.get("/tour-card-data/details/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const newDetailsId = new ObjectId(id);
+      const email = req.query.email;
 
       try {
         const tourCardDetails = await addPackagesCollection.findOne({
           _id: newDetailsId,
         });
+
+        // console.log('Sending tour card details:', tourCardDetails);
         res.send(tourCardDetails);
       } catch (error) {
-        res.send({ error: "field to find details" });
+        res.send({ error: "Failed to find details" });
       }
     });
 
     // Jwt token
     app.post("/jwt", async (req, res) => {
-      const { email } = req.body;
-      const user = { email };
-      const token = jwt.sign(user, process.env.JWT_SECRET_KEY, {
-        expiresIn: "3d",
-      });
-      res.send({ token });
+      const { access_token } = req.body;
+
+      try {
+        const decodedUser = await admin.auth().verifyIdToken(access_token);
+        const token = jwt.sign(
+          { email: decodedUser.email },
+          process.env.JWT_SECRET_KEY,
+          { expiresIn: "1h" }
+        );
+        res.send({ token });
+      } catch (error) {
+        // console.error('Firebase Token verification failed:', error);
+        res.status(401).send({ message: "Invalid Firebase token" });
+      }
     });
 
     // search functionality
@@ -123,19 +163,18 @@ async function run() {
       }
     });
 
-    app.patch('/packages/increment-booking/:id',async(req,res)=>{
+    app.patch("/packages/increment-booking/:id", async (req, res) => {
       const id = req.params.id;
-      try{
+      try {
         const result = await addPackagesCollection.updateOne(
-          {_id: new ObjectId(id)},
-          {$inc: {bookingCount: 1}}
-        )
-        res.send(result)
-      }catch(error){
-        res.send({error: error.message});
+          { _id: new ObjectId(id) },
+          { $inc: { bookingCount: 1 } }
+        );
+        res.send(result);
+      } catch (error) {
+        res.send({ error: error.message });
       }
-    })
-
+    });
 
     // delete package api
 
@@ -168,11 +207,15 @@ async function run() {
       }
     });
 
-    app.get("/all-packages/manage-package", async (req, res) => {
+    app.get("/all-packages/manage-package", verifyToken, async (req, res) => {
       const email = req.query.email;
 
       if (!email) {
         return res.send({ error: "Email is require" });
+      }
+
+      if (email != email) {
+        res.status(401).send({ message: "Unauthorized access" });
       }
 
       try {
@@ -186,7 +229,7 @@ async function run() {
     });
 
     // send data to db
-    app.post("/add-tour-packages", async (req, res) => {
+    app.post("/add-tour-packages", verifyToken, async (req, res) => {
       const newPackage = req.body;
       console.log(newPackage);
       const result = await addPackagesCollection.insertOne(newPackage);
@@ -242,11 +285,15 @@ async function run() {
 
     // find my-booking data using buyer email
 
-    app.get("/my-bookings", async (req, res) => {
+    app.get("/my-bookings", verifyToken, async (req, res) => {
       const email = req.query.email;
 
       if (!email) {
         return res.send({ error: "Email is require" });
+      }
+
+      if (email != req.decoded.email) {
+        res.status(401).send({ message: "Unauthorized access" });
       }
 
       try {
@@ -259,8 +306,8 @@ async function run() {
       }
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log("mongodb connected successfully");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("mongodb connected successfully");
   } finally {
     // await client.close()
   }
